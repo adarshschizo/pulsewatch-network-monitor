@@ -17,7 +17,7 @@ Windows is supported through `ping.exe`, PowerShell `Get-NetAdapterStatistics`, 
 
 ### Windows
 
-Install Go 1.22 or newer, open PowerShell in the project folder, and build the executable:
+Install Go 1.25 or newer, open PowerShell in the project folder, and build the executable:
 
   ```powershell
   go build -o pulsewatch.exe .
