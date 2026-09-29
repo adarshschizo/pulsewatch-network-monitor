@@ -106,6 +106,14 @@ What do you want to do?:
       The table is generated live from the same Windows adapter report.
       ![Pulsewatch network summary table](./img/terminal-table.png)
 
+      Example Windows output:
+
+      | # | Source | Incoming data (MB) | Outgoing data (MB) | Time |
+      | ---: | --- | ---: | ---: | --- |
+      | 1 | Windows network | 2321.98935 | 259.08538 | 2026-09-29 17:46:15 |
+
+      On macOS, the same table contains individual process rows collected by `nettop`. On Windows, it contains adapter-level rows because Windows does not expose the same process counters through the built-in command used here.
+
 - **Show Network Latency Chart**: No need to explain more!
   1. Network latency chart
       ![Pulsewatch network latency chart](./img/network-latency-chart.png)
