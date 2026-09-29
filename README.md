@@ -1,38 +1,65 @@
-# Network Latency Visualizer
+# Pulsewatch
+
+Pulsewatch is a lightweight network observability tool for Windows and macOS. It records latency, network traffic, and connection speed, then turns those readings into charts you can inspect locally.
+
+> This repository is a customized continuation of [Network-Latency-Visualizer](https://github.com/RichardHoa/Network-Latency-Visualizer). Review and preserve the upstream license and attribution requirements before publishing a fork.
 
 ## Features
 
 1. **Data Visualization**: Visualize network latency data over time in easy-to-understand charts.
-2. **Network Latency Monitoring**: Perform regular network latency checks using the `ping` command. You can set the frequency of checks (from every 1 minutes to once a day) via a cron job to automate the process.
-3. **Process Bandwidth Usage**: Track bandwidth usage by individual processes, displaying both incoming and outgoing data.
+2. **Network Latency Monitoring**: Perform regular network latency checks using the system `ping` command. You can set the frequency of checks from every minute to once a day.
+3. **Network Bandwidth Usage**: Track incoming and outgoing adapter traffic. Windows reports adapter totals; macOS can report process-level traffic through `nettop`.
 4. **Download & Upload Speed**: Measure and display your current download and upload speeds.
 
-Please notice this program **ONLY** runs on macOS.
+Windows is supported through `ping.exe`, PowerShell `Get-NetAdapterStatistics`, and Windows Task Scheduler. macOS uses `ping`, `nettop`, and cron. Linux can read and render existing reports, but its live collector is not currently implemented.
 
 ## How to Use
 
-1. Make the script executable:
+### Windows
 
-   ```bash
-   chmod 777 scanning
+Install Go 1.22 or newer, open PowerShell in the project folder, and build the executable:
+
+  ```powershell
+  go build -o pulsewatch.exe .
    ```
 
-2. Start data collection:
+Start data collection. Pulsewatch asks for an interval and registers a Windows Task Scheduler task named `Pulsewatch Network Scan`:
 
-   ```bash
-   ./scanning
+  ```powershell
+  .\pulsewatch.exe
    ```
 
-   **NOTICE**: At this stage, a window will pop up asking for some permissions. These may seem unusual, but the script is only setting a cronjob on your computer. The script does not contain any viruses. You can download the project and use Go to build and run it yourself without executing the pre-built script:
+To collect one sample immediately without changing the scheduler:
 
-  ```bash
-  go build -o scanning
+  ```powershell
+  .\pulsewatch.exe --collect
   ```
 
-3. For advanced options, run:
-   ```bash
-   ./scanning -a
-   ```
+Open the advanced menu with:
+
+  ```powershell
+  .\pulsewatch.exe -a
+  ```
+
+To remove the scheduled collector, choose **Cronjob options > Remove cronjob completely**. You can also inspect it with:
+
+  ```powershell
+  schtasks /Query /TN "Pulsewatch Network Scan"
+  ```
+
+Windows collection uses `ping.exe` for latency and PowerShell's `Get-NetAdapterStatistics` for aggregate adapter traffic. No third-party network driver is required.
+
+### macOS
+
+Build and run the collector with:
+
+  ```bash
+  go build -o pulsewatch .
+  ./pulsewatch
+  ./pulsewatch -a
+  ```
+
+macOS collection uses `nettop` for process traffic and cron for scheduling.
 
 ### Advanced Options Menu
 
@@ -48,6 +75,8 @@ What do you want to do?:
    Quit
 ```
 
+![Pulsewatch advanced menu](./img/pulsewatch-menu.png)
+
 #### Options Explained
 
 - **Cronjob Options**: Modify or remove the existing cronjob that automates network checks. 
@@ -59,45 +88,57 @@ What do you want to do?:
   ```
   The options are self-explainatory
 
-  If you want to see the cronjob this program has set up, do:
+  On Windows, inspect the scheduled task with:
   ```bash
-  crontab -l
+    schtasks /Query /TN "Pulsewatch Network Scan"
   ```
 
-  The cronjob working directory will resemble: `$Yourworkingdir/go-networking/scanning`.
+    On macOS, inspect the cron entry with `crontab -l`.
 
 
 - **Show process network usage chart**: These charts display the cumulative amount of data sent and received by processes since their creation. Note that the data shown is the total accumulated over time, not the current data transfer in any specific period.
 
   1. Received Network Data. This chart highlights the **top 3 processes** that have received the largest amount of data.
-     ![received network data chart](./img/received-network-data-chart.png)
+    ![Pulsewatch received network data chart](./img/received-network-data-chart.png)
   2. Sent Network Data. This chart highlights the **top 3 processes** that have sent the largest amount of data.
      ![sent network data chart](./img/sent-network-data-chart.png)
   3. In addition to the charts, a detailed table with all processes and their network usage is displayed in the terminal. The processes are **ordered by the average amount of data received**.
-      ![terminal table image](./img/terminal-table.png)
+      The table is generated live from the same Windows adapter report.
+      ![Pulsewatch network summary table](./img/terminal-table.png)
 
 - **Show Network Latency Chart**: No need to explain more!
   1. Network latency chart
-      ![network latency chart](./img/network-latency-chart.png)
+      ![Pulsewatch network latency chart](./img/network-latency-chart.png)
   2. Speedtest chart
-      ![speedtest chart](./img/speedtest-chart.png)
+      ![Pulsewatch speed chart](./img/speedtest-chart.png)
   
 
 All HTML charts are stored in the `chart/html` folder for future access.
+
+### Validate the project
+
+Run the automated checks from the project folder:
+
+```powershell
+go test ./...
+go vet ./...
+```
 
 ### Data Storage
 
 - **Network Bandwidth Data**: Stored in `network/network.txt`.
 - **Network Latency Data**: Stored in `ping/ping.txt`.
 
-## Motives
+## Why Pulsewatch
 
-This project was created as a way to get familiar with the Go programming language, combined with an interest in networking.
+Pulsewatch is designed for quick local diagnostics: collect a small history, spot latency spikes, and compare process traffic without sending telemetry to a hosted service.
 
-## Terminal commands being useds
+## Platform commands
 
-- **Latency Data Collection**: Uses the built-in macOS `ping` command (`ping google.com -c 10`) to gather latency data.
-- **Bandwidth Usage**: Uses `nettop -l 1 -P -x` to monitor bandwidth usage by each process.
+- **Windows latency**: Uses `ping -n 10 google.com`.
+- **Windows bandwidth**: Uses PowerShell `Get-NetAdapterStatistics` and records aggregate adapter traffic.
+- **macOS latency**: Uses `ping google.com -c 10`.
+- **macOS bandwidth**: Uses `nettop -l 1 -P -x` to monitor process traffic.
 
 ## Project Structure
 
@@ -114,25 +155,26 @@ This project is organized into several folders, each responsible for specific fu
 │       ├── ping.html
 │       └── speedtest.html
 ├── cronjob
-│   ├── cron.txt
 │   └── cronjob.go
 ├── go.mod
 ├── go.sum
 ├── img
-│   ├── incoming-network-data.png
 │   ├── network-latency-chart.png
-│   └── outgoing-network-data.png
+│   ├── pulsewatch-menu.png
+│   ├── received-network-data-chart.png
+│   ├── sent-network-data-chart.png
+│   ├── speedtest-chart.png
+│   └── terminal-table.png
 ├── main.go
 ├── network
 │   ├── network.go
-│   └── network.txt
+│   └── network_test.go
 ├── ping
 │   ├── ping.go
-│   └── ping.txt
-├── scanning
+│   └── ping_test.go
 ├── speedtest
-│   ├── speedtest.txt
-│   └── speedtesting.go
+│   ├── speedtesting.go
+│   └── speedtesting_test.go
 ├── table
 │   └── table.go
 └── terminal.go
@@ -181,11 +223,17 @@ This project is organized into several folders, each responsible for specific fu
 
 ## Limitations
 
-- **Latency Measurement**: The `ping` command only measures the total round-trip latency, so it cannot distinguish whether upload or download is slower.
-- **Process Name Length**: The `nettop` command truncates long process names, but it's usually clear enough to identify the associated application.
+- **Latency Measurement**: The `ping` command measures round-trip latency; it cannot distinguish whether upload or download is slower.
+- **Windows Bandwidth Detail**: Windows collection reports totals for network adapters, not individual processes.
+- **macOS Process Names**: The `nettop` command can truncate long process names.
 
 ## External library being used:
 - github.com/showwin/speedtest-go
 - github.com/go-echarts/go-echarts/v2
-- github.com/nexidian/gocliselect
 - github.com/jedib0t/go-pretty
+
+## Publishing checklist
+
+- Choose a repository name and add the appropriate license before publishing.
+- Build `pulsewatch.exe` from source; generated binaries and reports are intentionally ignored.
+- Run `go test ./...`, `go vet ./...`, and `go build -o pulsewatch.exe .` before pushing.

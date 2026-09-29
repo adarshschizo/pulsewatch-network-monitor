@@ -4,9 +4,21 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
+
+const windowsTaskName = "Pulsewatch Network Scan"
+
+func IsScheduled() bool {
+	if runtime.GOOS == "windows" {
+		return exec.Command("schtasks", "/Query", "/TN", windowsTaskName).Run() == nil
+	}
+	output, err := exec.Command("sh", "-c", "crontab -l 2>/dev/null").Output()
+	return err == nil && (strings.Contains(string(output), "scanning") || strings.Contains(string(output), "pulsewatch"))
+}
 
 // Calculate timestring in cronjob format, ex: * * * * *
 func calculateTimeString(timeInMinutes int) (timeStringInCronjob string) {
@@ -90,8 +102,17 @@ func askForTimeInput() (timeInMinutes int) {
 // add mode adds the cronjob to the system
 // remove mode removes the cronjob from the system
 func SaveCronJob(timeStringInCronjob string, WORKING_DIR string, mode string) error {
+	if runtime.GOOS == "windows" {
+		if mode == "remove" {
+			_ = exec.Command("schtasks", "/Delete", "/TN", windowsTaskName, "/F").Run()
+			return nil
+		}
+		minutes := minutesFromCronString(timeStringInCronjob)
+		return saveWindowsTask(minutes, WORKING_DIR)
+	}
+
 	// Initialize the path of txt.file
-	cronTXTPath := WORKING_DIR + "/cronjob/cron.txt"
+	cronTXTPath := filepath.Join(WORKING_DIR, "cronjob", "cron.txt")
 
 	// IF the file exist, then delete it
 	if _, err := os.Stat(cronTXTPath); err == nil {
@@ -118,11 +139,14 @@ func SaveCronJob(timeStringInCronjob string, WORKING_DIR string, mode string) er
 		// Convert []byte to string array
 		cronjobArray := strings.Split(string(crontabJobs), "\n")
 		// Scanning target to remove
-		scanningCronjob := WORKING_DIR + "/scanning"
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			return executableErr
+		}
 		envEnvironment := "WORKING_DIR=" + WORKING_DIR
 		// Remove the line that contain the scanning target
 		for index, cronjob := range cronjobArray {
-			if strings.Contains(cronjob, scanningCronjob) {
+			if strings.Contains(cronjob, executable) || strings.Contains(cronjob, "scanning") {
 				cronjobArray = append(cronjobArray[:index], cronjobArray[index+1:]...)
 			}
 
@@ -152,8 +176,12 @@ func SaveCronJob(timeStringInCronjob string, WORKING_DIR string, mode string) er
 	}
 
 	if mode == "add" {
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			return executableErr
+		}
 		// Create a new cronjob string
-		cronjob := timeStringInCronjob + " " + WORKING_DIR + "/scanning >> /tmp/scanning.out 2>> /tmp/scanning.err" + "\n"
+		cronjob := timeStringInCronjob + " \"" + executable + "\" >> /tmp/pulsewatch.out 2>> /tmp/pulsewatch.err" + "\n"
 		// Write the new cronjob to the file
 		_, writeNewCronJobErr := file.WriteString(cronjob)
 		if writeNewCronJobErr != nil {
@@ -178,6 +206,9 @@ func SetUpCronJob(WORKING_DIR string) error {
 	// Ask for time in minutes
 	timeInMinutes := askForTimeInput()
 	fmt.Printf("You chose %d minutes\n", timeInMinutes)
+	if runtime.GOOS == "windows" {
+		return saveWindowsTask(timeInMinutes, WORKING_DIR)
+	}
 
 	// Calculate time string in cronjob
 	timeStringInCronjob := calculateTimeString(timeInMinutes)
@@ -189,4 +220,37 @@ func SetUpCronJob(WORKING_DIR string) error {
 
 	return err
 
+}
+
+func minutesFromCronString(cronString string) int {
+	if cronString == "0 0 * * *" {
+		return 1440
+	}
+	if strings.HasPrefix(cronString, "0 ") {
+		return 60
+	}
+	parts := strings.Fields(cronString)
+	if len(parts) > 0 && strings.Contains(parts[0], "/") {
+		value, _ := strconv.Atoi(strings.TrimPrefix(parts[0], "*/"))
+		return value
+	}
+	return 1
+}
+
+func saveWindowsTask(minutes int, workingDir string) error {
+	if minutes < 1 {
+		minutes = 1
+	}
+	executable := filepath.Join(workingDir, "pulsewatch.exe")
+	if _, err := os.Stat(executable); err != nil {
+		executable, err = os.Executable()
+		if err != nil {
+			return err
+		}
+	}
+	cronTXTPath := filepath.Join(workingDir, "cronjob", "cron.txt")
+	if err := os.WriteFile(cronTXTPath, []byte(fmt.Sprintf("Windows Task Scheduler: every %d minute(s)\n", minutes)), 0644); err != nil {
+		return err
+	}
+	return exec.Command("schtasks", "/Create", "/SC", "MINUTE", "/MO", strconv.Itoa(minutes), "/TN", windowsTaskName, "/TR", fmt.Sprintf("\"%s\"", executable), "/F").Run()
 }

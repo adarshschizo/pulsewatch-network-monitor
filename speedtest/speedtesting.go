@@ -1,11 +1,14 @@
 package speedtest
 
 import (
+	"errors"
 	"fmt"
-	"github.com/showwin/speedtest-go/speedtest"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/showwin/speedtest-go/speedtest"
 )
 
 // Record Speed Test Data
@@ -17,8 +20,17 @@ func RecordSpeedTestData(WORKING_DIR string) error {
 		ULSpeed         speedtest.ByteRate
 	)
 	// Get all the avail servers
-	serverList, _ := speedtestClient.FetchServers()
-	targets, _ := serverList.FindServer([]int{})
+	serverList, err := speedtestClient.FetchServers()
+	if err != nil {
+		return fmt.Errorf("fetch speed-test servers: %w", err)
+	}
+	targets, err := serverList.FindServer([]int{})
+	if err != nil {
+		return fmt.Errorf("find speed-test server: %w", err)
+	}
+	if len(targets) == 0 {
+		return errors.New("no speed-test servers were available")
+	}
 	// Pick the first server from the list
 	server := targets[0]
 	// No ping test
@@ -36,7 +48,10 @@ func RecordSpeedTestData(WORKING_DIR string) error {
 	DLSpeed = speedtest.ByteRate(DLSpeed.Mbps())
 	ULSpeed = speedtest.ByteRate(ULSpeed.Mbps())
 
-	workingDirReport := WORKING_DIR + "/speedtest/speedtest.txt"
+	workingDirReport := filepath.Join(WORKING_DIR, "speedtest", "speedtest.txt")
+	if err := os.MkdirAll(filepath.Dir(workingDirReport), 0755); err != nil {
+		return err
+	}
 
 	// Open the file for appending
 	file, openFileErr := os.OpenFile(workingDirReport, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -68,16 +83,22 @@ func ReadSpeedTestReport(reportPath string) (DLSpeed []string, ULSpeed []string,
 	}
 
 	// Extract data
-	lines := strings.Split(string(report), "\n")
-	lines = lines[:len(lines)-1]
-
-	for _, line := range lines {
+	for _, line := range strings.Split(strings.TrimSpace(string(report)), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
 		sections := strings.Split(line, " | ")
+		if len(sections) != 3 {
+			continue
+		}
 		DL := strings.Split(sections[0], " ")[0]
 		UL := strings.Split(sections[1], " ")[0]
 		DLSpeed = append(DLSpeed, DL)
 		ULSpeed = append(ULSpeed, UL)
 		timeString = append(timeString, sections[2])
+	}
+	if len(DLSpeed) == 0 {
+		return nil, nil, nil, errors.New("speed-test report contains no valid samples")
 	}
 
 	return DLSpeed, ULSpeed, timeString, nil

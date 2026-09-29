@@ -1,6 +1,9 @@
 .env
+.DS_Store
+/scanning
 /network/network.txt
 /ping/ping.txt
 /chart/html
 /speedtest/speedtest.txt
 /cronjob/cron.txt
+pulsewatch.exe

@@ -3,15 +3,17 @@ package chart
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 
-	"github.com/RichardHoa/Network-Latency-Visualizer/network"
-	"github.com/RichardHoa/Network-Latency-Visualizer/ping"
-	"github.com/RichardHoa/Network-Latency-Visualizer/speedtest"
-	"github.com/RichardHoa/Network-Latency-Visualizer/table"
+	"github.com/adarshschizo/pulsewatch-network-monitor/network"
+	"github.com/adarshschizo/pulsewatch-network-monitor/ping"
+	"github.com/adarshschizo/pulsewatch-network-monitor/speedtest"
+	"github.com/adarshschizo/pulsewatch-network-monitor/table"
+
 	"github.com/go-echarts/go-echarts/v2/charts"
 	"github.com/go-echarts/go-echarts/v2/components"
 	"github.com/go-echarts/go-echarts/v2/opts"
@@ -31,8 +33,7 @@ func LineLabelPingChart(pingStats ping.PingStats) *charts.Line {
 	line := charts.NewLine()
 	line.SetGlobalOptions(
 		charts.WithTitleOpts(opts.Title{
-			Title: "Network latency chart",
-			Link:  "https://github.com/RichardHoa/Network-Latency-Visualizer",
+			Title: "Pulsewatch | Latency",
 		}),
 		charts.WithXAxisOpts(opts.XAxis{
 			Name: "Time",
@@ -72,7 +73,6 @@ func LineLabelProcessNetworkUsageChart(TopDesc []string, networkDataMap map[stri
 	line.SetGlobalOptions(
 		charts.WithTitleOpts(opts.Title{
 			Title: title,
-			Link:  "https://github.com/RichardHoa/Network-Latency-Visualizer",
 		}),
 		charts.WithXAxisOpts(opts.XAxis{
 			Name: "Time",
@@ -117,8 +117,7 @@ func LineLabelSpeedtestChart(DLSpeed []string, ULSpeed []string, timeString []st
 	line := charts.NewLine()
 	line.SetGlobalOptions(
 		charts.WithTitleOpts(opts.Title{
-			Title: "Speedtest chart",
-			Link:  "https://github.com/RichardHoa/Network-Latency-Visualizer",
+			Title: "Pulsewatch | Throughput",
 		}),
 		charts.WithXAxisOpts(opts.XAxis{
 			Name: "Time",
@@ -152,22 +151,19 @@ func LineLabelSpeedtestChart(DLSpeed []string, ULSpeed []string, timeString []st
 }
 
 // Function to create the network latency chart
-func CreatePingChart() {
+func CreatePingChart(workingDir string) error {
 
-	pingStats, readReportErr := ping.ReadPingReport("ping/ping.txt")
+	pingStats, readReportErr := ping.ReadPingReport(filepath.Join(workingDir, "ping", "ping.txt"))
 	if readReportErr != nil {
-		log.Fatal(readReportErr)
+		return readReportErr
 	}
 
 	page := components.NewPage()
 	page.AddCharts(
 		LineLabelPingChart(pingStats),
 	)
-	err := CreateAndOpenHTML(page, "chart/html/ping.html", "Network latency chart")
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	err := CreateAndOpenHTML(page, filepath.Join(workingDir, "chart", "html", "ping.html"), "Network latency chart")
+	return err
 }
 
 // Function to create the process network usage chart
@@ -200,12 +196,12 @@ func CreateNetworkChart(WORKING_DIR string) error {
 		LineLabelProcessNetworkUsageChart(sentKeysTop, networkDataMap, "sent"),
 	)
 
-	receivedHTMLOpenErr := CreateAndOpenHTML(receivedNetworkpage, "chart/html/networkpid-in.html", "Received network data")
+	receivedHTMLOpenErr := CreateAndOpenHTML(receivedNetworkpage, filepath.Join(WORKING_DIR, "chart", "html", "networkpid-in.html"), "Received network data")
 	if receivedHTMLOpenErr != nil {
 		return receivedHTMLOpenErr
 	}
 
-	sentHTMLOpenErr := CreateAndOpenHTML(sentNetworkPage, "chart/html/networkpid-out.html", "Sent network data")
+	sentHTMLOpenErr := CreateAndOpenHTML(sentNetworkPage, filepath.Join(WORKING_DIR, "chart", "html", "networkpid-out.html"), "Sent network data")
 	if sentHTMLOpenErr != nil {
 		return sentHTMLOpenErr
 	}
@@ -216,9 +212,9 @@ func CreateNetworkChart(WORKING_DIR string) error {
 }
 
 // Function to create the speedtest chart
-func CreateSpeedtestChart() error {
+func CreateSpeedtestChart(workingDir string) error {
 
-	DLSpeed, UPSpeed, timeString, readReportErr := speedtest.ReadSpeedTestReport("speedtest/speedtest.txt")
+	DLSpeed, UPSpeed, timeString, readReportErr := speedtest.ReadSpeedTestReport(filepath.Join(workingDir, "speedtest", "speedtest.txt"))
 	if readReportErr != nil {
 		return readReportErr
 	}
@@ -227,7 +223,7 @@ func CreateSpeedtestChart() error {
 	page.AddCharts(
 		LineLabelSpeedtestChart(DLSpeed, UPSpeed, timeString),
 	)
-	OpenHTMLErr := CreateAndOpenHTML(page, "chart/html/speedtest.html", "Speedtest chart")
+	OpenHTMLErr := CreateAndOpenHTML(page, filepath.Join(workingDir, "chart", "html", "speedtest.html"), "Speedtest chart")
 	if OpenHTMLErr != nil {
 		return OpenHTMLErr
 	}
@@ -237,14 +233,26 @@ func CreateSpeedtestChart() error {
 
 // Helper functions
 func CreateAndOpenHTML(page *components.Page, filePath string, title string) error {
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return err
+	}
 
 	file, err := os.Create(filePath)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	page.Render(io.MultiWriter(file))
+	if err := page.Render(io.MultiWriter(file)); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
 
-	htmlContent, _ := os.ReadFile(filePath)
+	htmlContent, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
 
 	htmlTitle := fmt.Sprintf("<title>%s</title>", title)
 
@@ -252,13 +260,21 @@ func CreateAndOpenHTML(page *components.Page, filePath string, title string) err
 
 	err = os.WriteFile(filePath, []byte(updatedContent), 0644)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	openHTML := exec.Command("open", filePath)
+	var openHTML *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		openHTML = exec.Command("rundll32", "url.dll,FileProtocolHandler", filePath)
+	case "darwin":
+		openHTML = exec.Command("open", filePath)
+	default:
+		openHTML = exec.Command("xdg-open", filePath)
+	}
 	err = openHTML.Run()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	return nil
 

@@ -2,87 +2,94 @@ package main
 
 import (
 	"fmt"
-	"github.com/RichardHoa/Network-Latency-Visualizer/chart"
-	"github.com/RichardHoa/Network-Latency-Visualizer/cronjob"
-	"github.com/nexidian/gocliselect"
 	"log"
 	"os"
 	"os/exec"
+
+	"github.com/adarshschizo/pulsewatch-network-monitor/chart"
+	"github.com/adarshschizo/pulsewatch-network-monitor/cronjob"
 )
 
-func RunTerminal(WORKING_DIR string) {
-	// Create a terminal menu for the user
-	menu := gocliselect.NewMenu("What do you want to do?")
-
-	// Create option for the user
-	menu.AddItem("Cronjob options", "cronjob options")
-	menu.AddItem("Show process network usage chart", "network usage chart")
-	menu.AddItem("Show network latency chart", "network latency chart")
-	menu.AddItem("Quit", "quit")
-
+func RunTerminal(workingDir string) {
 	for {
 		clearTerminal()
-		// Get the choice from the user
-		choice := menu.Display()
+		choice := displayMenu("Pulsewatch", []string{
+			"Cronjob options",
+			"Show process network usage chart",
+			"Show network latency chart",
+			"Quit",
+		})
 
 		switch choice {
-		case "cronjob options":
-			cronJobOPtions(WORKING_DIR)
-
-		case "network usage chart":
-			err := chart.CreateNetworkChart(WORKING_DIR)
-			if err != nil {
+		case 1:
+			cronJobOptions(workingDir)
+		case 2:
+			if err := chart.CreateNetworkChart(workingDir); err != nil {
 				log.Fatal(err)
 			}
-			os.Exit(1)
-
-		case "network latency chart":
-			chart.CreateSpeedtestChart()
-			chart.CreatePingChart()
-			os.Exit(1)
-
-		case "quit":
+			os.Exit(0)
+		case 3:
+			if err := chart.CreateSpeedtestChart(workingDir); err != nil {
+				log.Fatal(err)
+			}
+			if err := chart.CreatePingChart(workingDir); err != nil {
+				log.Fatal(err)
+			}
+			os.Exit(0)
+		case 4:
 			fmt.Println("Goodbye! See you later")
-			os.Exit(1)
-
+			os.Exit(0)
 		}
-
 	}
-
 }
 
-func cronJobOPtions(WORKING_DIR string) {
-	menu := gocliselect.NewMenu("Cronjob options")
-
-	menu.AddItem("Edit cronjob time", "edit cronjob")
-	menu.AddItem("Remove cronjob completely", "remove cronjob")
-	menu.AddItem("Come back", "come back")
-
+func cronJobOptions(workingDir string) {
 	clearTerminal()
-	choice := menu.Display()
+	choice := displayMenu("Cronjob options", []string{
+		"Edit cronjob time",
+		"Remove cronjob completely",
+		"Come back",
+	})
 
 	switch choice {
-
-	case "edit cronjob":
-		// Remove the current cronjob
-		cronjob.SaveCronJob("", WORKING_DIR, "remove")
-		// Add a new cronjob
-		err := cronjob.SetUpCronJob(WORKING_DIR)
-		if err != nil {
+	case 1:
+		if err := cronjob.SaveCronJob("", workingDir, "remove"); err != nil {
 			log.Fatal(err)
 		}
-	case "remove cronjob":
-		cronjob.SaveCronJob("", WORKING_DIR, "remove")
-
-	case "come back":
+		if err := cronjob.SetUpCronJob(workingDir); err != nil {
+			log.Fatal(err)
+		}
+	case 2:
+		if err := cronjob.SaveCronJob("", workingDir, "remove"); err != nil {
+			log.Fatal(err)
+		}
+	case 3:
 		fmt.Println("Coming back")
 	}
+}
 
+func displayMenu(title string, options []string) int {
+	for {
+		fmt.Println(title)
+		for index, option := range options {
+			fmt.Printf("  %d. %s\n", index+1, option)
+		}
+		fmt.Print("Select an option: ")
+
+		var choice int
+		if _, err := fmt.Scanln(&choice); err == nil && choice >= 1 && choice <= len(options) {
+			return choice
+		}
+		fmt.Println("Please enter one of the listed numbers.")
+	}
 }
 
 func clearTerminal() {
-	clear := exec.Command("clear")
+	command := "clear"
+	if os.PathSeparator == '\\' {
+		command = "cls"
+	}
+	clear := exec.Command(command)
 	clear.Stdout = os.Stdout
-	clear.Run()
-
+	_ = clear.Run()
 }

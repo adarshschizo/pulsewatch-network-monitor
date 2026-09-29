@@ -2,15 +2,16 @@ package network
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-	"slices"
 )
 
 type NetworkData struct {
@@ -23,7 +24,10 @@ type NetworkData struct {
 // Function to record Network Data to file
 func RecordNetworkData(WORKING_DIR string) error {
 
-	workingDirReport := WORKING_DIR + "/network/network.txt"
+	workingDirReport := filepath.Join(WORKING_DIR, "network", "network.txt")
+	if err := os.MkdirAll(filepath.Dir(workingDirReport), 0755); err != nil {
+		return err
+	}
 
 	// Open the file for appending
 	file, openFileErr := os.OpenFile(workingDirReport, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -32,12 +36,16 @@ func RecordNetworkData(WORKING_DIR string) error {
 	}
 	defer file.Close()
 
+	if runtime.GOOS == "windows" {
+		return recordWindowsNetworkData(file)
+	}
+
 	// Scan using nettop
 	networkcmd, err := exec.Command("nettop", "-l", "1", "-P", "-x").Output()
-	networkcmd = networkcmd[:len(networkcmd)-1]
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
+	networkcmd = []byte(strings.TrimSpace(string(networkcmd)))
 
 	lines := strings.Split(string(networkcmd), "\n")
 	lines = lines[1:]
@@ -47,6 +55,9 @@ func RecordNetworkData(WORKING_DIR string) error {
 
 	for _, line := range lines {
 		matches := re.FindStringSubmatch(line)
+		if len(matches) != 5 {
+			continue
+		}
 
 		// Get the network consumption in byte
 		receivedByte, err := strconv.ParseFloat(matches[3], 64)
@@ -81,9 +92,37 @@ func RecordNetworkData(WORKING_DIR string) error {
 	return nil
 }
 
+func recordWindowsNetworkData(file *os.File) error {
+	output, err := exec.Command("powershell", "-NoProfile", "-Command", "Get-NetAdapterStatistics | ForEach-Object { \"$($_.ReceivedBytes),$($_.SentBytes)\" }").Output()
+	if err != nil {
+		return err
+	}
+
+	var receivedBytes, sentBytes float64
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		values := strings.Split(strings.TrimSpace(line), ",")
+		if len(values) != 2 {
+			continue
+		}
+		received, receivedErr := strconv.ParseFloat(strings.TrimSpace(values[0]), 64)
+		sent, sentErr := strconv.ParseFloat(strings.TrimSpace(values[1]), 64)
+		if receivedErr == nil && sentErr == nil {
+			receivedBytes += received
+			sentBytes += sent
+		}
+	}
+
+	if receivedBytes == 0 && sentBytes == 0 {
+		return fmt.Errorf("no Windows network adapter statistics were returned")
+	}
+	result := fmt.Sprintf("Windows network | %.5f | %.5f | %s\n", receivedBytes/1000000, sentBytes/1000000, time.Now().Format("2006-01-02 15:04:05"))
+	_, err = file.WriteString(result)
+	return err
+}
+
 // Function to read the network report and return the stats, ready for chart building
 func ReadNetworkData(WORKING_DIR string) (networkMap map[string]NetworkData, err error) {
-	filePath := WORKING_DIR + "/network/network.txt"
+	filePath := filepath.Join(WORKING_DIR, "network", "network.txt")
 
 	file, err := os.ReadFile(filePath)
 	if err != nil {
@@ -91,13 +130,16 @@ func ReadNetworkData(WORKING_DIR string) (networkMap map[string]NetworkData, err
 	}
 
 	// Get all the lines in slice format
-	lines := strings.Split(string(file), "\n")
-	lines = lines[:len(lines)-1]
-
 	var networkDataMap = make(map[string]NetworkData)
 
-	for _, line := range lines {
+	for _, line := range strings.Split(strings.TrimSpace(string(file)), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
 		slice := strings.Split(line, " | ")
+		if len(slice) != 4 {
+			continue
+		}
 		processName := slice[0]
 
 		// If the process is already in the map, update its network data
@@ -183,7 +225,13 @@ func SortNetworkDataMap(networkDataMap map[string]NetworkData, sortedByReceivedD
 
 // Function to get the top N keys in descending order
 func GetTopDesc(keysSorted []string, topNumber int) (topKeysInDesc []string) {
-	topKeys := make([]string, 0, 3)
+	if topNumber > len(keysSorted) {
+		topNumber = len(keysSorted)
+	}
+	if topNumber < 0 {
+		topNumber = 0
+	}
+	topKeys := make([]string, 0, topNumber)
 	for i := 0; i < topNumber; i++ {
 		topKeys = append(topKeys, keysSorted[i])
 	}
@@ -215,7 +263,6 @@ func CheckFullZero(slice []string) bool {
 	return true
 }
 
-
 // Some processes might have different length of time, this function will make them have the same length
 func EqualizeTopKey(networkDataMap map[string]NetworkData, TopDesc []string, processNameLongestTime string) (networkDataMapCleaned map[string]NetworkData) {
 
@@ -227,7 +274,7 @@ func EqualizeTopKey(networkDataMap map[string]NetworkData, TopDesc []string, pro
 				networkData.ReceivedMB = slices.Insert(networkData.ReceivedMB, index, "0.00000")
 				networkData.SentMB = slices.Insert(networkData.SentMB, index, "0.00000")
 				networkDataMap[processName] = networkData
-				
+
 			}
 			if time != networkDataMap[processName].Time[index] {
 				networkData := networkDataMap[processName]
@@ -247,12 +294,14 @@ func EqualizeTopKey(networkDataMap map[string]NetworkData, TopDesc []string, pro
 
 // Find the processName that has the longest time slice
 func FindLongestTime(TopDesc []string, networkDataMap map[string]NetworkData) (processName string) {
-	longest := 0
-	if len(networkDataMap[TopDesc[1]].Time) > len(networkDataMap[TopDesc[0]].Time) {
-		longest = 1
+	if len(TopDesc) == 0 {
+		return ""
 	}
-	if len(networkDataMap[TopDesc[2]].Time) > len(networkDataMap[TopDesc[longest]].Time) {
-		longest = 2
+	longest := 0
+	for index := 1; index < len(TopDesc); index++ {
+		if len(networkDataMap[TopDesc[index]].Time) > len(networkDataMap[TopDesc[longest]].Time) {
+			longest = index
+		}
 	}
 
 	return TopDesc[longest]
