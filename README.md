@@ -232,8 +232,8 @@ This project is organized into several folders, each responsible for specific fu
 - github.com/go-echarts/go-echarts/v2
 - github.com/jedib0t/go-pretty
 
-## Publishing checklist
+## License
 
-- Choose a repository name and add the appropriate license before publishing.
-- Build `pulsewatch.exe` from source; generated binaries and reports are intentionally ignored.
-- Run `go test ./...`, `go vet ./...`, and `go build -o pulsewatch.exe .` before pushing.
+This project is released under the [MIT License](LICENSE). The project also acknowledges the upstream [Network-Latency-Visualizer](https://github.com/RichardHoa/Network-Latency-Visualizer) source and its original author.
+
+Generated binaries and reports are intentionally ignored. Before publishing changes, run `go test ./...`, `go vet ./...`, and `go build -o pulsewatch.exe .`.
